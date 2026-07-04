@@ -240,6 +240,297 @@ class ArgCount(ArgTest):
         self.run_argtest_raw([port, port + 1])
         self.done()
 
+# --- Student edge-case tests ---
+
+@test
+class ArgThreadsZero(ArgTest):
+    name = "argthreads_zero"
+    description = "zero threads must be rejected (boundary: threads <= 0 is invalid)"
+
+    def run(self):
+        # The check is `num_threads <= 0`, so 0 must be rejected just like -1.
+        self.run_argtest(threads=0)
+        self.done()
+
+@test
+class ArgBuffersZero(ArgTest):
+    name = "argbuffers_zero"
+    description = "zero queue size must be rejected (boundary: queue_size <= 0 is invalid)"
+
+    def run(self):
+        # The check is `queue_size <= 0`, so 0 must be rejected just like -1.
+        self.run_argtest(buffers=0)
+        self.done()
+
+@test
+class ArgTcpPortBoundary(ArgTest):
+    name = "argtcpport_boundary"
+    description = "tcp port 1024 must be rejected (boundary: port <= 1024 is invalid, >1024 is valid)"
+
+    def run(self):
+        # The check is `tcp_port <= 1024`, so exactly 1024 must be rejected.
+        # Port 22 is already tested; this specifically probes the boundary value.
+        self.run_argtest(port=1024)
+        self.done()
+
+@test
+class ArgTcpPortTooLarge(ArgTest):
+    name = "argtcpport_too_large"
+    description = "tcp port 65536 must be rejected (upper boundary: port > 65535 is invalid)"
+
+    def run(self):
+        # The check is `tcp_port > 65535`, so 65536 must be rejected.
+        self.run_argtest(port=65536)
+        self.done()
+
+@test
+class ArgUdpPortTooLarge(ArgTest):
+    name = "argudpport_too_large"
+    description = "udp port 65536 must be rejected (upper boundary: port > 65535 is invalid)"
+
+    def run(self):
+        # The check is `udp_port > 65535`, so 65536 must be rejected.
+        # The existing udp port test only covers the lower bound (port 22).
+        self.run_argtest(udp_port=65536)
+        self.done()
+
+
+@test
+class GetNotFound(ServerTest):
+    name = "get_not_found"
+    description = "GET a nonexistent file returns HTTP 404, not a crash"
+    threads, buffers = 2, 4
+
+    def run(self):
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+            conn.request("GET", "/this_file_does_not_exist_xyz.html")
+            response = conn.getresponse()
+            response.read()  # drain
+            conn.close()
+            if response.status != 404:
+                self.fail(f"Expected HTTP 404 for missing file, got {response.status}")
+            if serverProc.poll() is not None:
+                self.fail("Server crashed after 404 request")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class GetPathTraversal(ServerTest):
+    name = "get_path_traversal"
+    description = "GET with '..' in URI is safely redirected to home.html (200), not a crash or directory escape"
+    threads, buffers = 2, 4
+
+    def run(self):
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            # requestParseURI detects ".." and resets filename to ./public/home.html.
+            # The response must be 200 (home.html exists), not a crash or 500.
+            conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+            conn.request("GET", "/../../../etc/passwd")
+            response = conn.getresponse()
+            body = response.read()
+            conn.close()
+            if response.status != 200:
+                self.fail(f"Expected 200 (redirect to home.html) for '..' URI, got {response.status}")
+            if len(body) == 0:
+                self.fail("Response body was empty after path-traversal redirect")
+            if serverProc.poll() is not None:
+                self.fail("Server crashed after path-traversal request")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class UnsupportedMethod(ServerTest):
+    name = "unsupported_method"
+    description = "HTTP methods other than GET/POST must return 501 Not Implemented"
+    threads, buffers = 2, 4
+
+    def run(self):
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            # requestHandle only handles GET and POST; everything else hits the
+            # `else` branch which calls requestError("501", "Not Implemented").
+            conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+            conn.request("DELETE", "/home.html")
+            response = conn.getresponse()
+            response.read()  # drain
+            conn.close()
+            if response.status != 501:
+                self.fail(f"Expected HTTP 501 for DELETE method, got {response.status}")
+            if serverProc.poll() is not None:
+                self.fail("Server crashed after unsupported-method request")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class StaticCounterInHeaders(ServerTest):
+    name = "static_counter_in_headers"
+    description = "Stat-Thread-Static header increments with each static GET (1-thread server)"
+    threads, buffers = 1, 4
+
+    def run(self):
+        # With exactly 1 worker thread, all requests go to the same thread, so
+        # after N static GETs its Stat-Thread-Static must equal N.
+        serverProc = self.run_server(self.threads, self.buffers)
+        n_reqs = 3
+        try:
+            last_headers = {}
+            for _ in range(n_reqs):
+                conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+                conn.request("GET", "/home.html")
+                resp = conn.getresponse()
+                resp.read()
+                # Build a case-insensitive dict: getheaders() preserves the
+                # original mixed-case names (e.g. "Stat-Thread-Static"), so we
+                # lowercase keys to avoid lookup misses.
+                last_headers = {k.lower(): v for k, v in resp.getheaders()}
+                conn.close()
+
+            # The server sends `Stat-Thread-Static:: <n>`, so the value stored
+            # by Python's HTTP parser is `: <n>` (the extra leading colon is
+            # part of the value). Strip it before converting to int.
+            raw_val = last_headers.get("stat-thread-static", "")
+            self.log(f"All response headers: {last_headers}")
+            val_str = raw_val.lstrip(":").strip()
+            try:
+                stat_count = int(val_str)
+            except ValueError:
+                self.fail(f"Stat-Thread-Static header not parseable as int: {raw_val!r}")
+                return
+
+            if stat_count < n_reqs:
+                self.fail(
+                    f"Expected Stat-Thread-Static >= {n_reqs} after {n_reqs} static GETs, "
+                    f"got {stat_count}"
+                )
+            if serverProc.poll() is not None:
+                self.fail("Server crashed during static-counter test")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class UdpPingThreadIdZero(ServerTest):
+    name = "udp_ping_id_zero"
+    description = "UDP ping for thread id 0 must be silently ignored (out of valid range 1..N)"
+    threads, buffers = 2, 4
+
+    def run(self):
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            # server.c: `if (target_id >= 1 && target_id <= num_threads)` —
+            # id 0 fails the check so the ping is never routed to any mailbox.
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(1.5)
+            try:
+                sock.sendto(b"0", ("localhost", self.udp_port))
+                data, _ = sock.recvfrom(4096)
+                # If we reach here the server replied — that is wrong.
+                self.fail(f"Server replied to UDP ping for id 0 (should be ignored): {data!r}")
+            except socket.timeout:
+                pass  # expected: no reply for an out-of-range id
+            finally:
+                sock.close()
+
+            if serverProc.poll() is not None:
+                self.fail("Server crashed while handling UDP ping for id 0")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class UdpPingThreadIdTooLarge(ServerTest):
+    name = "udp_ping_id_too_large"
+    description = "UDP ping for thread id > num_threads must be silently ignored"
+    threads, buffers = 2, 4
+
+    def run(self):
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            # server.c: `if (target_id >= 1 && target_id <= num_threads)` —
+            # id num_threads+1 fails the upper-bound check and must be dropped.
+            out_of_range_id = self.threads + 1
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(1.5)
+            try:
+                sock.sendto(str(out_of_range_id).encode(), ("localhost", self.udp_port))
+                data, _ = sock.recvfrom(4096)
+                self.fail(
+                    f"Server replied to UDP ping for id {out_of_range_id} "
+                    f"(> num_threads={self.threads}, should be ignored): {data!r}"
+                )
+            except socket.timeout:
+                pass  # expected: no reply for an out-of-range id
+            finally:
+                sock.close()
+
+            if serverProc.poll() is not None:
+                self.fail(f"Server crashed while handling UDP ping for id {out_of_range_id}")
+        finally:
+            serverProc.kill()
+        self.done()
+
+@test
+class StatCounterSum(ServerTest):
+    name = "stat_counter_sum"
+    description = "stat+dynm+post == total_req for a known request mix (1-thread server, via UDP ping)"
+    threads, buffers = 1, 8
+
+    def run(self):
+        # With 1 thread all requests go to the same thread, so the UDP ping
+        # for id=1 gives us that thread's exact counters.
+        serverProc = self.run_server(self.threads, self.buffers)
+        try:
+            n_static  = 2   # GET /home.html
+            n_dynamic = 1   # GET /output.cgi?0.1
+            n_post    = 1   # POST /home.html
+
+            for _ in range(n_static):
+                conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+                conn.request("GET", "/home.html")
+                conn.getresponse().read()
+                conn.close()
+
+            for _ in range(n_dynamic):
+                conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+                conn.request("GET", "/output.cgi?0.1")
+                conn.getresponse().read()
+                conn.close()
+
+            for _ in range(n_post):
+                conn = http.client.HTTPConnection("localhost", self.port, timeout=10)
+                conn.request("POST", "/home.html")
+                conn.getresponse().read()
+                conn.close()
+
+            try:
+                stats = self.send_udp_ping(1)
+            except socket.timeout:
+                self.fail("No UDP response for thread 1 during stat-sum test")
+                return
+
+            s = stats.get("Stat-Thread-Static",  -1)
+            d = stats.get("Stat-Thread-Dynamic", -1)
+            p = stats.get("Stat-Thread-Post",    -1)
+            t = stats.get("Stat-Thread-Count",   -1)
+
+            self.log(f"UDP stats: static={s}, dynamic={d}, post={p}, total={t}")
+
+            if s + d + p != t:
+                self.fail(
+                    f"Counter invariant violated: stat({s}) + dynm({d}) + post({p}) "
+                    f"= {s+d+p}, but total = {t}"
+                )
+            if serverProc.poll() is not None:
+                self.fail("Server crashed during stat-sum test")
+        finally:
+            serverProc.kill()
+        self.done()
 
 # --- Concurrency: one locking test ---
 
