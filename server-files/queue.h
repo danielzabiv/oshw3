@@ -45,20 +45,29 @@ void queue_destroy(conn_queue_t *q);
 // Blocks (without spinning) while pending + active == capacity.
 void queue_push(conn_queue_t *q, conn_request_t item);
 
+// Non-blocking check: would queue_push() block right now (i.e. is
+// pending + active == capacity)? HW3 -- Task 4: lets the single-producer
+// master thread decide whether to even attempt Accept()/queue_push() this
+// iteration, so it never buries itself inside a blocking queue_push()
+// call and can keep servicing UDP pings via select() while the TCP queue
+// is full (see the "queue full" Piazza clarification on this exact
+// scenario). Safe to call without the caller holding any lock itself.
+int queue_has_space(conn_queue_t *q);
+
 // Pops the oldest connection request from the head of the queue (FIFO).
 // Blocks (without spinning) if the queue is currently empty.
 // The popped item counts as "active" until queue_task_done() is called.
 conn_request_t queue_pop(conn_queue_t *q);
+
+// Same as queue_pop(), but gives up (without spinning) after waiting up
+// to timeout_ms milliseconds if the queue is still empty.
+// HW3 -- Task 4: lets a worker thread periodically come back to check its
+// UDP mailbox instead of blocking on queue_pop() forever.
+// Returns 1 and fills *out if an item became available, 0 on timeout.
+int queue_pop_timed(conn_queue_t *q, conn_request_t *out, int timeout_ms);
 
 // Marks a previously-popped request as finished processing, freeing its
 // slot in the pending+active capacity for a new connection.
 void queue_task_done(conn_queue_t *q);
 
 #endif /* __QUEUE_H__ */
-
-// Pops the oldest connection request from the head of the queue (FIFO).
-// Blocks (without spinning) if the queue is currently empty.
-// The popped item counts as "active" until queue_task_done() is called.
-conn_request_t queue_pop(conn_queue_t *q);
-
-// Marks a previously-popped request as fin

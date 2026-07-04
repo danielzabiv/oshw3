@@ -572,13 +572,46 @@ int Open_listenfd(int port)
 /* $begin udp_open */
 int UDP_Open(int port)
 {
-//TODO
+    int udpfd, optval = 1;
+    struct sockaddr_in serveraddr;
+
+    /* Create a UDP socket descriptor */
+    if ((udpfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+        unix_error("UDP_Open socket error");
+
+    /* Eliminates "Address already in use" error from bind. */
+    if (setsockopt(udpfd, SOL_SOCKET, SO_REUSEADDR,
+                   (const void *)&optval, sizeof(int)) < 0)
+        unix_error("UDP_Open setsockopt error");
+
+    /* udpfd will be an endpoint for all UDP pings to port
+       on any IP address for this host */
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons((unsigned short)port);
+    if (bind(udpfd, (SA *)&serveraddr, sizeof(serveraddr)) < 0)
+        unix_error("UDP_Open bind error");
+
+    return udpfd;
 }
 /* $end udp_open */
 
 int UDP_FillSockAddr(struct sockaddr_in *addr, char *hostname, int port)
 {
-//TODO
+    struct hostent *hp;
+
+    bzero((char *) addr, sizeof(struct sockaddr_in));
+
+    if ((hp = gethostbyname(hostname)) == NULL)
+        return -2; /* check h_errno for cause of error */
+
+    addr->sin_family = AF_INET;
+    bcopy((char *) hp->h_addr,
+          (char *) &addr->sin_addr.s_addr, hp->h_length);
+    addr->sin_port = htons((unsigned short)port);
+
+    return 0;
 }
 
 int UDP_Write(int sd, struct sockaddr_in *addr, char *buffer, int n)
@@ -671,6 +704,22 @@ void Pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
 
     if ((rc = pthread_cond_wait(cond, mutex)) != 0)
         posix_error(rc, "Pthread_cond_wait error");
+}
+
+// Like Pthread_cond_wait, but bounded by an absolute deadline (abstime).
+// ETIMEDOUT is a normal, expected outcome (not an error) -- it just means
+// no signal arrived before the deadline, so the caller can go do other
+// periodic work (e.g. HW3 Task 4: a worker thread checking its UDP
+// mailbox) without ever busy-waiting/spinning. Returns 0 or ETIMEDOUT;
+// any other error is fatal.
+int Pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *abstime)
+{
+    int rc;
+
+    rc = pthread_cond_timedwait(cond, mutex, abstime);
+    if (rc != 0 && rc != ETIMEDOUT)
+        posix_error(rc, "Pthread_cond_timedwait error");
+    return rc;
 }
 
 void Pthread_cond_signal(pthread_cond_t *cond)
