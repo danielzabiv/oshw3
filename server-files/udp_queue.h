@@ -1,8 +1,7 @@
 #ifndef __UDP_QUEUE_H__
 #define __UDP_QUEUE_H__
 
-#include <pthread.h>
-#include <netinet/in.h>
+#include "segel.h"
 
 // HW3 — Task 4: a single pending UDP "ping" waiting to be answered by one
 // specific worker thread (identified by the id it targets).

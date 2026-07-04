@@ -1,7 +1,7 @@
 #ifndef SERVER_LOG_H
 #define SERVER_LOG_H
 
-#include <time.h>
+#include "segel.h"
 
 typedef struct Server_Log* server_log;
 

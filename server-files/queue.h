@@ -1,8 +1,7 @@
 #ifndef __QUEUE_H__
 #define __QUEUE_H__
 
-#include <pthread.h>
-#include <sys/time.h>
+#include "segel.h"
 
 // A single pending connection: its accepted socket fd plus the time it was
 // accepted by the master thread (used for Stat-Req-Arrival / Task 3 later).

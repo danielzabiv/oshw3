@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include "segel.h"
 #include "udp_queue.h"
 

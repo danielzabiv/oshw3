@@ -1,8 +1,3 @@
-#include <stdlib.h>
-#include <string.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <sys/time.h>
 #include "segel.h"
 #include "log.h"
 #include "request.h"
