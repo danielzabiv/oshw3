@@ -146,14 +146,14 @@ void *worker_thread(void *arg)
 
 int main(int argc, char *argv[])
 {
-    // Create the global server log
-    g_log = create_log();
-
     int listenfd, connfd, tcp_port, udp_port, num_threads, queue_size, clientlen;
     double debug_sleep_time;
     struct sockaddr_in clientaddr;
 
     getargs(&tcp_port, &udp_port, &num_threads, &queue_size, &debug_sleep_time, argc, argv);
+
+    // HW3 Task 5: Create the global server log with debug_sleep_time
+    g_log = create_log(debug_sleep_time);
 
     // HW3 — Task 1: initialize the thread pool and request queue.
     queue_init(&g_queue, queue_size);

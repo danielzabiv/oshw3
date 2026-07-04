@@ -42,16 +42,17 @@ static void requestLogEntry(server_log log, threads_stats t_stats, time_stats *t
     char entry[MAXBUF];
     entry[0] = '\0';
 
-    // Both timestamps must be known BEFORE building the entry text, since
-    // the entry embeds its own Stat-Log-Arrival/Stat-Log-Dispatch fields.
-    // NOTE: once Task 5 adds the debug sleep inside log.c's critical
-    // section, log_exit will need to be captured from inside add_to_log()
-    // itself (after the sleep, before the buffer write) to be spec-exact
-    // -- it can't be measured accurately from out here until then.
+    // HW3 Task 5: Both timestamps must be known BEFORE building the entry text.
+    // log_enter is recorded here (BEFORE requesting lock).
+    // log_exit will be recorded INSIDE add_to_log() after the sleep (INSIDE critical section).
     gettimeofday(&tm_stats->log_enter, NULL);
-    gettimeofday(&tm_stats->log_exit, NULL);
+    
+    // Build the entry with temporary placeholder times; they will be updated
+    // in append_job_log() when printed (log_exit will be set inside add_to_log).
     append_stats(entry, t_stats, *tm_stats);
-    add_to_log(log, entry, strlen(entry));
+    
+    // HW3 Task 5: Pass tm_stats to add_to_log so it can update log_exit inside critical section
+    add_to_log(log, entry, strlen(entry), tm_stats);
 }
 
 void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg, time_stats tm_stats, threads_stats t_stats)
@@ -224,9 +225,10 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         }
     } else if (strcasecmp(method, "POST") == 0) {
         // HW3 — Task 3: POST is a "reader" — time the log read and count it.
+        // HW3 — Task 5: Stat-Log-Arrival is recorded before get_log()
         gettimeofday(&tm_stats.log_enter, NULL);
-        body_len = get_log(log, (char**)&body_content);
-        gettimeofday(&tm_stats.log_exit, NULL);
+        // HW3 — Task 5: Stat-Log-Dispatch will be recorded inside get_log() after the sleep
+        body_len = get_log(log, (char**)&body_content, &tm_stats);
         t_stats->post_req++;
 
         sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");

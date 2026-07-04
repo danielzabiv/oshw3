@@ -1,14 +1,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sys/time.h>
 #include "segel.h"
 #include "log.h"
+#include "request.h"
 
 #define LOG_INITIAL_CAPACITY 4096
 
 // Opaque struct definition
 struct Server_Log {
-    // TODO: Implement internal log storage (e.g., dynamic buffer, linked list, etc.)
     char *buf;
     int len;
     int capacity;
@@ -19,11 +21,13 @@ struct Server_Log {
     int active_readers;
     int active_writers;
     int waiting_writers;
+    
+    // HW3 Task 5: debug sleep time in seconds (can be fractional)
+    double debug_sleep_time;
 };
 
-// Creates a new server log instance (stub)
-server_log create_log() {
-    // TODO: Allocate and initialize internal log structure
+// Creates a new server log instance
+server_log create_log(double debug_sleep_time) {
     struct Server_Log *log = Malloc(sizeof(struct Server_Log));
 
     log->capacity = LOG_INITIAL_CAPACITY;
@@ -37,13 +41,15 @@ server_log create_log() {
     log->active_readers = 0;
     log->active_writers = 0;
     log->waiting_writers = 0;
+    
+    // HW3 Task 5: store debug sleep time
+    log->debug_sleep_time = debug_sleep_time;
 
     return log;
 }
 
-// Destroys and frees the log (stub)
+// Destroys and frees the log
 void destroy_log(server_log log) {
-    // TODO: Free all internal resources used by the log
     free(log->buf);
     pthread_mutex_destroy(&log->mutex);
     pthread_cond_destroy(&log->readers_cond);
@@ -89,14 +95,33 @@ static void writer_unlock(server_log log) {
     pthread_mutex_unlock(&log->mutex);
 }
 
-// Returns dummy log content as string (stub)
-int get_log(server_log log, char** dst) {
-    // TODO: Return the full contents of the log as a dynamically allocated string
-    // This function should handle concurrent access
+// HW3 Task 5: helper to perform debug sleep if configured
+// Called while holding the lock (inside critical section)
+static void perform_debug_sleep(server_log log) {
+    if (log->debug_sleep_time > 0) {
+        // Convert debug_sleep_time (in seconds) to microseconds
+        unsigned long sleep_us = (unsigned long)(log->debug_sleep_time * 1000000.0);
+        usleep(sleep_us);
+    }
+}
+
+// Returns the log contents as a string (null-terminated)
+// NOTE: caller is responsible for freeing dst
+int get_log(server_log log, char** dst, void* time_stats_ptr) {
     reader_lock(log);
 
+    // HW3 Task 5: perform debug sleep inside critical section
+    perform_debug_sleep(log);
+    
+    // HW3 Task 5: Stat-Log-Dispatch recorded AFTER sleep, inside critical section
+    // Note: log_enter is already recorded by caller BEFORE requesting lock
+    time_stats *tm_stats = (time_stats *)time_stats_ptr;
+    if (tm_stats != NULL) {
+        gettimeofday(&tm_stats->log_exit, NULL);
+    }
+
     int len = log->len;
-    *dst = (char*)Malloc(len + 1); // Allocate for caller
+    *dst = (char*)Malloc(len + 1);
     if (*dst != NULL) {
         memcpy(*dst, log->buf, len);
         (*dst)[len] = '\0';
@@ -106,11 +131,19 @@ int get_log(server_log log, char** dst) {
     return len;
 }
 
-// Appends a new entry to the log (no-op stub)
-void add_to_log(server_log log, const char* data, int data_len) {
-    // TODO: Append the provided data to the log
-    // This function should handle concurrent access
+// Appends a new entry to the log
+void add_to_log(server_log log, const char* data, int data_len, void* time_stats_ptr) {
     writer_lock(log);
+
+    // HW3 Task 5: perform debug sleep inside critical section
+    perform_debug_sleep(log);
+    
+    // HW3 Task 5: Stat-Log-Dispatch recorded AFTER sleep, inside critical section
+    // Note: log_enter is already recorded by caller BEFORE requesting lock
+    time_stats *tm_stats = (time_stats *)time_stats_ptr;
+    if (tm_stats != NULL) {
+        gettimeofday(&tm_stats->log_exit, NULL);
+    }
 
     int needed = log->len + data_len + 2; // + '#' separator + '\0'
     if (needed > log->capacity) {
