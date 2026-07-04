@@ -34,6 +34,26 @@ int append_stats(char* buf, threads_stats t_stats, time_stats tm_stats) {
     return append_thread_log(buf, t_stats);
 }
 
+// HW3 — Task 3: builds one log entry (same job+thread stats block sent
+// in the HTTP response headers) and appends it to the server log, timing
+// how long the log write itself takes.
+static void requestLogEntry(server_log log, threads_stats t_stats, time_stats *tm_stats)
+{
+    char entry[MAXBUF];
+    entry[0] = '\0';
+
+    // Both timestamps must be known BEFORE building the entry text, since
+    // the entry embeds its own Stat-Log-Arrival/Stat-Log-Dispatch fields.
+    // NOTE: once Task 5 adds the debug sleep inside log.c's critical
+    // section, log_exit will need to be captured from inside add_to_log()
+    // itself (after the sleep, before the buffer write) to be spec-exact
+    // -- it can't be measured accurately from out here until then.
+    gettimeofday(&tm_stats->log_enter, NULL);
+    gettimeofday(&tm_stats->log_exit, NULL);
+    append_stats(entry, t_stats, *tm_stats);
+    add_to_log(log, entry, strlen(entry));
+}
+
 void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg, time_stats tm_stats, threads_stats t_stats)
 {
     char buf[MAXLINE], body[MAXBUF];
@@ -152,6 +172,15 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
     Rio_readlineb(&rio, buf, MAXLINE);
     sscanf(buf, "%s %s %s", method, uri, version);
 
+    // HW3 — Task 3: every request counts toward this thread's total,
+    // valid or not; log timestamps default to zero until (if) this
+    // request actually talks to the logger below.
+    t_stats->total_req++;
+    tm_stats.log_enter.tv_sec = 0;
+    tm_stats.log_enter.tv_usec = 0;
+    tm_stats.log_exit.tv_sec = 0;
+    tm_stats.log_exit.tv_usec = 0;
+
     if (strcasecmp(method, "GET") == 0) {
         requestReadhdrs(&rio);
         is_static = requestParseURI(uri, filename, cgiargs);
@@ -169,24 +198,36 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
             requestGetFiletype(filename, filetype);
             body_len = sbuf.st_size;
             body_content = requestPrepareStatic(filename, body_len);
+            t_stats->stat_req++;
 
             // Fixed Content-Length format string and sprintf overlap
             sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Content-Length: %d\r\n", body_len);
             sprintf(resp_headers + strlen(resp_headers), "Content-Type: %s\r\n", filetype);
+
+            // HW3 — Task 3: GET is a "writer" — log this request before responding.
+            requestLogEntry(log, t_stats, &tm_stats);
         } else {
             if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
                 requestError(fd, filename, "403", "Forbidden", "OS-HW3 Server could not run this CGI program", tm_stats, t_stats);
                 return;
             }
             body_content = requestPrepareDynamic(filename, cgiargs, &body_len);
+            t_stats->dynm_req++;
 
             sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
+
+            // HW3 — Task 3: GET is a "writer" — log this request before responding.
+            requestLogEntry(log, t_stats, &tm_stats);
         }
     } else if (strcasecmp(method, "POST") == 0) {
+        // HW3 — Task 3: POST is a "reader" — time the log read and count it.
+        gettimeofday(&tm_stats.log_enter, NULL);
         body_len = get_log(log, (char**)&body_content);
+        gettimeofday(&tm_stats.log_exit, NULL);
+        t_stats->post_req++;
 
         sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
