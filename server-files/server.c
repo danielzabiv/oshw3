@@ -76,7 +76,7 @@ void *worker_thread(void *arg)
     int thread_id = *(int *)arg;
     free(arg);
 
-    threads_stats t = malloc(sizeof(struct Threads_stats));
+    threads_stats t = Malloc(sizeof(struct Threads_stats));
     t->id = thread_id;    // Thread ID
     t->stat_req = 0;       // Static request count
     t->dynm_req = 0;       // Dynamic request count
@@ -93,6 +93,7 @@ void *worker_thread(void *arg)
         requestHandle(req.connfd, tm_stats, t, g_log);
 
         Close(req.connfd);
+        queue_task_done(&g_queue);
     }
 
     free(t); // unreachable, kept for completeness
@@ -112,12 +113,12 @@ int main(int argc, char *argv[])
 
     // HW3 — Task 1: initialize the thread pool and request queue.
     queue_init(&g_queue, queue_size);
-    pthread_t *workers = malloc(sizeof(pthread_t) * num_threads);
+    pthread_t *workers = Malloc(sizeof(pthread_t) * num_threads);
     int i;
     for (i = 0; i < num_threads; i++) {
-        int *id = malloc(sizeof(int));
+        int *id = Malloc(sizeof(int));
         *id = i + 1;
-        pthread_create(&workers[i], NULL, worker_thread, id);
+        Pthread_create(&workers[i], NULL, worker_thread, id);
     }
 
     listenfd = Open_listenfd(tcp_port);

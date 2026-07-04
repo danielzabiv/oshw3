@@ -593,4 +593,108 @@ int UDP_Read(int sd, struct sockaddr_in *addr, char *buffer, int n)
     return recvfrom(sd, buffer, n, 0, (struct sockaddr *) addr, (socklen_t *) &len);
 }
 
+/****************************
+ * Dynamic memory wrappers (HW3)
+ ****************************/
+
+void *Malloc(size_t size)
+{
+    void *p = malloc(size);
+    if (p == NULL)
+        unix_error("Malloc error");
+    return p;
+}
+
+void *Realloc(void *ptr, size_t size)
+{
+    void *p = realloc(ptr, size);
+    if (p == NULL)
+        unix_error("Realloc error");
+    return p;
+}
+
+/****************************
+ * Pthread wrappers (HW3)
+ ****************************/
+
+void Pthread_create(pthread_t *tidp, pthread_attr_t *attrp, void *(*routine)(void *), void *argp)
+{
+    int rc;
+
+    if ((rc = pthread_create(tidp, attrp, routine, argp)) != 0)
+        posix_error(rc, "Pthread_create error");
+}
+
+void Pthread_mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *attr)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_init(mutex, attr)) != 0)
+        posix_error(rc, "Pthread_mutex_init error");
+}
+
+void Pthread_mutex_lock(pthread_mutex_t *mutex)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_lock(mutex)) != 0)
+        posix_error(rc, "Pthread_mutex_lock error");
+}
+
+void Pthread_mutex_unlock(pthread_mutex_t *mutex)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_unlock(mutex)) != 0)
+        posix_error(rc, "Pthread_mutex_unlock error");
+}
+
+void Pthread_mutex_destroy(pthread_mutex_t *mutex)
+{
+    int rc;
+
+    if ((rc = pthread_mutex_destroy(mutex)) != 0)
+        posix_error(rc, "Pthread_mutex_destroy error");
+}
+
+void Pthread_cond_init(pthread_cond_t *cond, pthread_condattr_t *attr)
+{
+    int rc;
+
+    if ((rc = pthread_cond_init(cond, attr)) != 0)
+        posix_error(rc, "Pthread_cond_init error");
+}
+
+void Pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
+{
+    int rc;
+
+    if ((rc = pthread_cond_wait(cond, mutex)) != 0)
+        posix_error(rc, "Pthread_cond_wait error");
+}
+
+void Pthread_cond_signal(pthread_cond_t *cond)
+{
+    int rc;
+
+    if ((rc = pthread_cond_signal(cond)) != 0)
+        posix_error(rc, "Pthread_cond_signal error");
+}
+
+void Pthread_cond_broadcast(pthread_cond_t *cond)
+{
+    int rc;
+
+    if ((rc = pthread_cond_broadcast(cond)) != 0)
+        posix_error(rc, "Pthread_cond_broadcast error");
+}
+
+void Pthread_cond_destroy(pthread_cond_t *cond)
+{
+    int rc;
+
+    if ((rc = pthread_cond_destroy(cond)) != 0)
+        posix_error(rc, "Pthread_cond_destroy error");
+}
+
 

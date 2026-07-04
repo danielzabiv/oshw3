@@ -161,4 +161,20 @@ int UDP_FillSockAddr(struct sockaddr_in *addr, char *hostname, int port);
 int UDP_Write(int sd, struct sockaddr_in *addr, char *buffer, int n);
 int UDP_Read(int sd, struct sockaddr_in *addr, char *buffer, int n);
 
+/* Dynamic memory wrappers (HW3) */
+void *Malloc(size_t size);
+void *Realloc(void *ptr, size_t size);
+
+/* Pthread wrappers (HW3) */
+void Pthread_create(pthread_t *tidp, pthread_attr_t *attrp, void *(*routine)(void *), void *argp);
+void Pthread_mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *attr);
+void Pthread_mutex_lock(pthread_mutex_t *mutex);
+void Pthread_mutex_unlock(pthread_mutex_t *mutex);
+void Pthread_mutex_destroy(pthread_mutex_t *mutex);
+void Pthread_cond_init(pthread_cond_t *cond, pthread_condattr_t *attr);
+void Pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+void Pthread_cond_signal(pthread_cond_t *cond);
+void Pthread_cond_broadcast(pthread_cond_t *cond);
+void Pthread_cond_destroy(pthread_cond_t *cond);
+
 #endif /* __CSAPP_H__ */
